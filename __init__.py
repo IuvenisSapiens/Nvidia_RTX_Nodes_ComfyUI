@@ -119,3 +119,7 @@ class NVVFXVideoExtension(ComfyExtension):
 
 async def comfy_entrypoint() -> NVVFXVideoExtension:
     return NVVFXVideoExtension()
+
+# hack so registry picks up the node name
+if False:
+    NODE_CLASS_MAPPINGS = {"RTXVideoSuperResolution": RTXVideoSuperResolution}
