@@ -50,7 +50,7 @@ class RTXVideoSuperResolution(io.ComfyNode):
 
     @classmethod
     def execute(cls, images: torch.Tensor, resize_type: UpscaleTypedDict, quality: str) -> io.NodeOutput:
-        _, h, w, _ = images.shape
+        b, h, w, c = images.shape
 
         selected_type = resize_type["resize_type"]
         if selected_type == UpscaleType.SCALE_BY:
@@ -79,34 +79,23 @@ class RTXVideoSuperResolution(io.ComfyNode):
         }
         selected_quality = quality_mapping.get(quality, nvvfx.effects.QualityLevel.HIGH)
 
-        upscaled_batches = []
-
         with nvvfx.VideoSuperRes(selected_quality) as sr:
             sr.output_width = output_width
             sr.output_height = output_height
             sr.load()
 
+            out_tensor = torch.empty((images.shape[0], output_height, output_width, c), device=images.device, dtype=images.dtype)
             for i in range(0, images.shape[0], batch_size):
                 batch = images[i:i + batch_size]
 
-                batch_cuda = batch.cuda().permute(0, 3, 1, 2).contiguous()
-
-                batch_outputs = []
+                batch_cuda = batch.cuda().permute(0, 3, 1, 2).float().contiguous()
 
                 for j in range(batch_cuda.shape[0]):
                     input_frame = batch_cuda[j]
                     dlpack_out = sr.run(input_frame).image
-                    output = torch.from_dlpack(dlpack_out).clone()
-                    batch_outputs.append(output)
+                    out_tensor[i + j: i + j + 1] = torch.from_dlpack(dlpack_out).movedim(0, -1).unsqueeze(0)
 
-                batch_out_tensor = torch.stack(batch_outputs, dim=0)
-
-                batch_out_tensor = batch_out_tensor.permute(0, 2, 3, 1).cpu()
-                upscaled_batches.append(batch_out_tensor)
-
-        final_images = torch.cat(upscaled_batches, dim=0)
-
-        return io.NodeOutput(final_images)
+        return io.NodeOutput(out_tensor)
 
 
 class NVVFXVideoExtension(ComfyExtension):
